@@ -245,9 +245,10 @@ class KeplerianState(Base):
     a = Column(Float)
     e = Column(Float)
     i = Column(Float)
+    Omega = Column(Float)
     omega = Column(Float)
-    w = Column(Float)
-    M = Column(Float)
+    M = Column(Float, nullable=True)
+    Tp = Column(Float, nullable=True)
 
     orbit = relationship("Orbit", back_populates="keplerian_state")
 
@@ -377,10 +378,11 @@ class Cutout(Base):
         nullable=False, unique=True, index=True
     )
     
-    image = Column(JSON)
-    variance = Column(JSON)
-    mask = Column(JSON)
+    image = Column(JSON, nullable=True)
+    variance = Column(JSON, nullable=True)
+    mask = Column(JSON, nullable=True)
 
+    path = Column(String, nullable=True)
     width = Column(Integer)
     height = Column(Integer)
     

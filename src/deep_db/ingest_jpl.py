@@ -43,13 +43,14 @@ def main():
                 r = float(r)
                 hp_index = hp.lonlat_to_healpix(ra * u.deg, dec * u.deg)
 
-                obj = session.query(SolarSystemObject).filter_by(name=object_name).first()
+                obj = session.query(SolarSystemObject).filter_by(name=object_name, type="sbident").first()
                 if obj is None:
+                    print(f"missing object {object_name} in database", file=sys.stderr)
                     obj = SolarSystemObject(name=object_name, type="sbident")
                     session.add(obj)
                 
                 neighbors_of_neighbors = list(map(int, sum(map(lambda x : list(hp.neighbours(x)), hp.neighbours(hp_index)), [])))
-                print(expnum, hp_index, neighbors_of_neighbors, file=sys.stderr)
+                # print(expnum, hp_index, neighbors_of_neighbors, file=sys.stderr)
                 de = session.query(
                     DetectorExposure
                 ).join(
@@ -98,6 +99,7 @@ def main():
                 session.commit()
 
     def gen():
+        args.jpl_ephemeris.seek(0)
         while line := args.jpl_ephemeris.readline():
             yield line
 
@@ -119,8 +121,26 @@ def main():
             session.add(ephemeris_source)
             session.commit()
         
+        # add solar system objects
+        objects = set()
+        for row in gen():
+            parts = row.strip().split("|")
+            if len(parts) != 12:
+                continue
+            object_name, provid, expnum, time, ra, dec, ra_rate, dec_rate, v, alpha, delta, r = parts
+            objects.add(object_name)
+        for object_name in objects:
+            obj = session.query(SolarSystemObject).filter_by(name=object_name, type="sbident").first()
+            if obj is None:
+                obj = SolarSystemObject(name=object_name, type="sbident")
+                session.add(obj)
+        session.commit()
+
     chunk_size = 10_000
-    Parallel(n_jobs=args.processes)(delayed(process_rows)(chunk) for chunk in yield_n_items(gen(), chunk_size))
+    Parallel(n_jobs=args.processes)(
+        delayed(process_rows)(chunk) 
+        for chunk in yield_n_items(gen(), chunk_size)
+    )
 
 
 if __name__ == "__main__":

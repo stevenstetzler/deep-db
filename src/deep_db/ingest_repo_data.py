@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
-from sqlalchemy import func, String
+from sqlalchemy import func, String, cast, or_
 from sqlalchemy import create_engine
+from sqlalchemy.pool import NullPool
 from joblib import Parallel, delayed
 import numpy as np
 from .models import Base, Repository, Ephemeris, Detector, Exposure, DetectorExposure, EphemerisDetectorLocation, Cutout, Photometry, SolarSystemObject
@@ -111,9 +112,10 @@ def main():
     parser = argparse.ArgumentParser(description="Ingest location data into Deep DB")
     parser.add_argument("repo", type=str, help="Path to the repository")
     parser.add_argument("dataset", type=str, help="Name of the dataset to query")
-    parser.add_argument("--collections", type=str)
-    parser.add_argument("--db", type=str)
-    parser.add_argument("--repo-name", type=str)
+    parser.add_argument("--output-dir", type=Path, default=Path("./"))
+    parser.add_argument("--collections", type=str, required=True)
+    parser.add_argument("--db", type=str, required=True)
+    parser.add_argument("--repo-name", type=str, required=True)
     parser.add_argument("--cutout-size", type=int, default=100, help="Size of the cutout in pixels (default: 100)")
     parser.add_argument("--processes", type=int, default=1, help="Number of parallel processes to use (default: 1)")
     parser.add_argument("--object-ids", type=int, nargs="+", default=[], help="List of object IDs to process")
@@ -137,125 +139,153 @@ def main():
         # get exposure.wcs to get locations
         # load exposure
         # get and put cutouts from exposure
-        engine = create_engine(args.db, echo=args.echo)
+        engine = create_engine(args.db, echo=args.echo, poolclass=NullPool)
         with Session(engine) as session:
+            repo = session.query(Repository).filter_by(name=repo_name).first()
+            repository_id = repo.id # this isn't unique...
+
             result = session.query(
                 DetectorExposure.id, Exposure.expnum, Detector.number
-            ).join(
-                Detector, DetectorExposure.detector_id == Detector.id
-            ).join(
-                Exposure, DetectorExposure.exposure_id == Exposure.id
-            ).filter(
+            ).join(Detector).join(Exposure).filter(
                 DetectorExposure.id == detector_exposure_id
             ).first()
-            if result is None:
-                raise ValueError(f"DetectorExposure with id {detector_exposure_id} not found")
+            if not result: 
+                return
             _, visit, detector = result
-            
+
             try:
+                print(f"Getting {dataset} for visit {visit} and detector {detector}", file=sys.stderr)
                 ref = next(iter(butler.registry.queryDatasets(dataset, where=f"instrument='DECam' and visit={visit} and detector={detector}")))
             except StopIteration:
                 print(f"No {dataset} found for visit {visit} and detector {detector}, skipping", file=sys.stderr)
                 return
 
             collection = ref.run
-            exposure = butler.get(ref)
-            wcs = exposure.getWcs()
-            bbox = exposure.getBBox()
-            for ephemeris_id in ephemeris_ids:
-                ephemeris = session.query(Ephemeris).filter_by(id=ephemeris_id).first()
-                if ephemeris is None:
-                    print(f"Ephemeris with id {ephemeris_id} not found, skipping", file=sys.stderr)
-                    continue          
+            exposure = None
 
-                ra = ephemeris.ra
-                dec = ephemeris.dec
-                sp = lsst.geom.SpherePoint(
-                    lsst.geom.Angle(ra, lsst.geom.degrees), 
-                    lsst.geom.Angle(dec, lsst.geom.degrees)
+            data_bundle = session.query(
+                Ephemeris, 
+                SolarSystemObject,
+                EphemerisDetectorLocation,
+                Cutout,
+                Photometry
+            ).join(
+                SolarSystemObject, 
+                Ephemeris.object_id == SolarSystemObject.id
+            ).outerjoin(
+                EphemerisDetectorLocation, 
+                (EphemerisDetectorLocation.ephemeris_id == Ephemeris.id) & 
+                (EphemerisDetectorLocation.collection == collection) &
+                (EphemerisDetectorLocation.dataset == dataset) &
+                (EphemerisDetectorLocation.repository_id == repository_id)
+            ).outerjoin(
+                Cutout, 
+                Cutout.ephemeris_detector_location_id == EphemerisDetectorLocation.id
+            ).outerjoin(
+                Photometry, 
+                Photometry.ephemeris_detector_location_id == EphemerisDetectorLocation.id
+            ).filter(
+                Ephemeris.id.in_(ephemeris_ids)
+            ).filter(
+                or_(
+                    EphemerisDetectorLocation.id == None,
+                    Cutout.id == None,
+                    Photometry.id == None
                 )
+            ).all()
+            
+            if not data_bundle:
+                return
+                
+            for ephem, sso, loc, cutout, photo in data_bundle:
+                try:
+                    if exposure is None:
+                        print(f"Loading exposure for visit {visit} detector {detector}", file=sys.stderr)
+                        exposure = butler.get(ref)
+                        wcs = exposure.getWcs()
+                        bbox = exposure.getBBox()
 
-                ephemeris_detector_location = session.query(EphemerisDetectorLocation).filter_by(
-                    ephemeris_id=ephemeris_id,
-                    repository_id=repository_id,
-                    collection=collection,
-                    dataset=dataset,
-                ).first()
-                if ephemeris_detector_location is not None:
-                    print(f"EphemerisDetectorLocation for ephemeris_id {ephemeris_id}, repository_id {repository_id}, collection {collection}, dataset {dataset} already exists", file=sys.stderr)
-                    x, y = ephemeris_detector_location.x, ephemeris_detector_location.y
-                    p = lsst.geom.Point2D(x, y)
-                else:
+                    # Calculate Pixel Position
+                    sp = lsst.geom.SpherePoint(ephem.ra * lsst.geom.degrees, ephem.dec * lsst.geom.degrees)
                     p = wcs.skyToPixel(sp)
                     x, y = p.getX(), p.getY()
+
                     try:
                         if not bbox.contains(lsst.geom.Point2I(int(x), int(y))):
-                            print(f"Ephemeris id {ephemeris_id} with RA {ra}, Dec {dec} is outside the detector bounds, skipping", file=sys.stderr)
+                            print(f"Ephemeris id {ephem.id} with RA {ephem.ra}, Dec {ephem.dec} is outside the detector bounds, skipping", file=sys.stderr)
                             continue
                     except Exception as e:
-                        print(f"Error checking bounds for Ephemeris id {ephemeris_id} with RA {ra}, Dec {dec}: {e}, skipping", file=sys.stderr)
+                        print(f"Error checking bounds for Ephemeris id {ephem.id} with RA {ephem.ra}, Dec {ephem.dec}: {e}, skipping", file=sys.stderr)
                         continue
-                    ephemeris_detector_location = EphemerisDetectorLocation(
-                        ephemeris_id=ephemeris.id,
-                        repository_id=repository_id,
-                        collection=collection,
-                        dataset=dataset,
-                        x=float(x),
-                        y=float(y)
-                    )
-                    session.add(ephemeris_detector_location)
 
-                cutout = session.query(Cutout).filter_by(
-                    ephemeris_detector_location=ephemeris_detector_location
-                ).first()
-                if cutout is not None:
-                    print(f"Cutout for EphemerisDetectorLocation id {ephemeris_detector_location.id} already exists", file=sys.stderr)
-                else:
-                    cutout_bbox = lsst.geom.Box2I(
-                        lsst.geom.Point2I(
-                            int(x - args.cutout_size // 2), 
-                            int(y - args.cutout_size // 2)
-                        ), 
-                        lsst.geom.Extent2I(args.cutout_size, args.cutout_size)
-                    )
-                    cutout_bbox.clip(bbox)
-                    cutout_data = exposure.getCutout(cutout_bbox)
+                    if not loc:
+                        loc = EphemerisDetectorLocation(
+                            ephemeris_id=ephem.id, 
+                            repository_id=repository_id,
+                            collection=collection, 
+                            dataset=dataset, 
+                            x=float(x), 
+                            y=float(y)
+                        )
+                        session.add(loc)
+                        session.flush()
+                    
+                    if not cutout:
+                        sso_name = sso.name.replace(" ", "_").replace("(", "").replace(")", "")
+                        cutout_dir = args.output_dir / "cutouts" / repo_name / dataset / collection.replace("/", "_") / str(visit) / str(detector) / sso_name
+                        cutout_path = cutout_dir / "cutout.fits"
 
-                    cutout = Cutout(
-                        image=[(None if np.isnan(x) else float(x)) for x in cutout_data.image.array.flatten()],
-                        variance=[(None if np.isnan(x) else float(x)) for x in cutout_data.variance.array.flatten()],
-                        mask=[int(x) for x in cutout_data.mask.array.flatten()],
-                        width=cutout_data.getBBox().getWidth(),
-                        height=cutout_data.getBBox().getHeight(),
-                        ephemeris_detector_location=ephemeris_detector_location,
-                    )
-                    session.add(cutout)
+                        cutout_bbox = lsst.geom.Box2I(
+                            lsst.geom.Point2I(
+                                int(x - args.cutout_size // 2), 
+                                int(y - args.cutout_size // 2)
+                            ), 
+                            lsst.geom.Extent2I(
+                                args.cutout_size, 
+                                args.cutout_size
+                            )
+                        )
+                        cutout_bbox.clip(bbox)
+                        cutout_data = exposure.getCutout(cutout_bbox)
+                        
+                        print(f"Writing cutout for Ephemeris id {ephem.id} to {cutout_path}", file=sys.stderr)
+                        cutout_dir.mkdir(parents=True, exist_ok=True)
+                        cutout_data.writeFits(str(cutout_path))
 
-                photometry = session.query(Photometry).filter_by(
-                    ephemeris_detector_location=ephemeris_detector_location
-                ).first()
-                if photometry is not None:
-                    print(f"Photometry for EphemerisDetectorLocation id {ephemeris_detector_location.id} already exists", file=sys.stderr)
-                else:
-                    photometry_data = logL_position(exposure, p, [0, 0])
-                    photometry_data = {k: map_types(v) for k, v in photometry_data.items()}
-                    photometry = Photometry(
-                        logl=photometry_data['logL'],
-                        a=photometry_data['a'],
-                        c=photometry_data['c'],
-                        flux=photometry_data['flux'],
-                        flux_ref=photometry_data['flux_ref'],
-                        sigma=photometry_data['sigma'],
-                        sigma_ref=photometry_data['sigma_ref'],
-                        snr=photometry_data['SNR'],
-                        mag=photometry_data['mag'],
-                        mag_err_lo=photometry_data['mag_err_lo'],
-                        mag_err_hi=photometry_data['mag_err_hi'],
-                        mask=photometry_data['mask'],
-                        zero_point=photometry_data['zero_point'],
-                        ephemeris_detector_location=ephemeris_detector_location,
-                    )
-                    session.add(photometry)
+                        cutout = Cutout(
+                            # image=[(None if np.isnan(x) else float(x)) for x in cutout_data.image.array.flatten()],
+                            # variance=[(None if np.isnan(x) else float(x)) for x in cutout_data.variance.array.flatten()],
+                            # mask=[int(x) for x in cutout_data.mask.array.flatten()],
+                            path=str(cutout_path.relative_to(args.output_dir)),
+                            width=cutout_data.getBBox().getWidth(),
+                            height=cutout_data.getBBox().getHeight(),
+                            ephemeris_detector_location=loc,
+                        )
+                        session.add(cutout)
+                    if not photo:
+                        photometry_data = logL_position(exposure, p, [0, 0])
+                        photometry_data = {k: map_types(v) for k, v in photometry_data.items()}
+                        photometry = Photometry(
+                            logl=photometry_data['logL'],
+                            a=photometry_data['a'],
+                            c=photometry_data['c'],
+                            flux=photometry_data['flux'],
+                            flux_ref=photometry_data['flux_ref'],
+                            sigma=photometry_data['sigma'],
+                            sigma_ref=photometry_data['sigma_ref'],
+                            snr=photometry_data['SNR'],
+                            mag=photometry_data['mag'],
+                            mag_err_lo=photometry_data['mag_err_lo'],
+                            mag_err_hi=photometry_data['mag_err_hi'],
+                            mask=photometry_data['mask'],
+                            zero_point=photometry_data['zero_point'],
+                            ephemeris_detector_location=loc,
+                        )
+                        session.add(photometry)
+                except Exception as e:
+                    print(f"Failed processing Ephem {ephem.id} on visit {visit}: {e}", file=sys.stderr)
+                    session.rollback()
+                    continue
 
             session.commit()
 
@@ -279,23 +309,33 @@ def main():
         ).group_by(Ephemeris.detector_exposure_id)
 
         if args.object_ids:
-            q = q.filter(Ephemeris.object_id.in_(args.object_ids))
+            if any('~' in str(oid) for oid in args.object_ids):
+                pattern = '|'.join([str(oid).replace('~', '') for oid in args.object_ids])
+                q = q.filter(cast(Ephemeris.object_id, String).op('~')(pattern))
+            else:
+                q = q.filter(Ephemeris.object_id.in_(args.object_ids))
+
         if args.object_names or args.object_types:
             q = q.join(SolarSystemObject, Ephemeris.object_id == SolarSystemObject.id)
-        if args.object_names:
-            q = q.filter(SolarSystemObject.name.in_(args.object_names))
-        if args.object_types:
-            q = q.filter(SolarSystemObject.type.in_(args.object_types))
 
-        # print(list(q))
+        if args.object_names:
+            if any('~' in n for n in args.object_names):
+                pattern = '|'.join([n.replace('~', '') for n in args.object_names])
+                q = q.filter(SolarSystemObject.name.op('~')(pattern))
+            else:
+                q = q.filter(SolarSystemObject.name.in_(args.object_names))
+
+        if args.object_types:
+            if any('~' in t for t in args.object_types):
+                pattern = '|'.join([t.replace('~', '') for t in args.object_types])
+                q = q.filter(SolarSystemObject.type.op('~')(pattern))
+            else:
+                q = q.filter(SolarSystemObject.type.in_(args.object_types))
+            
         Parallel(n_jobs=args.processes)(
             delayed(query_location)(args.dataset, repo.id, detector_exposure_id, list(map(int, ephemeris_ids.split(','))))
             for detector_exposure_id, ephemeris_ids in q
         )
-        # for detector_exposure_id, ephemeris_ids in q:
-        #     print(f"Processing DetectorExposure id {detector_exposure_id} with Ephemeris ids {ephemeris_ids}", file=sys.stderr)
-        #     query_location(args.dataset, repo.id, detector_exposure_id, list(map(int, ephemeris_ids.split(','))))
-        #     break
         
 if __name__ == "__main__":
     main()

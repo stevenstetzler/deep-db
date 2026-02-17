@@ -7,10 +7,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 from astropy.visualization import ZScaleInterval, ImageNormalize, AsinhStretch
 from joblib import Parallel, delayed
+import astropy.io.fits
+from pathlib import Path
 
 afwDisplay.setDefaultBackend('matplotlib')
 
-def query_data(db, object_id, width, height, dataset, by_night=True):
+def query_data(db, object_id, width, height, dataset, by_night=True, output_dir=Path(".")):
     print("Querying data for object ID:", object_id)
     engine = create_engine(db)
     with Session(engine) as session:
@@ -82,13 +84,20 @@ def query_data(db, object_id, width, height, dataset, by_night=True):
             data["night"] = night if by_night else "survey"
             data["expnums"].append(expnum)
             data["times"].append(time)
-            data["image"].append(
-                [(x if x is not None else float("NaN")) for x in cutout.image]
-            )
-            data["variance"].append(
-                [(x if x is not None else float("NaN")) for x in cutout.variance]
-            )
-            data["mask"].append(cutout.mask)
+            if cutout.path:
+                print(f"opening file {output_dir / cutout.path}")
+                hdul = astropy.io.fits.open(output_dir / cutout.path)
+                data['image'].append(list(map(float, hdul[1].data.flatten())))
+                data['variance'].append(list(map(float, hdul[3].data.flatten())))
+                data['mask'].append(list(map(int, hdul[2].data.flatten())))
+            else:
+                data["image"].append(
+                    [(x if x is not None else float("NaN")) for x in cutout.image]
+                )
+                data["variance"].append(
+                    [(x if x is not None else float("NaN")) for x in cutout.variance]
+                )
+                data["mask"].append(cutout.mask)
 
         if len(data['expnums']) > 0:
             data['image'] = np.array(data['image']).reshape((-1, width, height))
@@ -221,7 +230,8 @@ def main():
                 object_id,
                 args.width,
                 args.height,
-                args.dataset
+                args.dataset,
+                output_dir=args.output_dir
             ):
                 # print(len(data['expnums']), data['night'])
                 # continue

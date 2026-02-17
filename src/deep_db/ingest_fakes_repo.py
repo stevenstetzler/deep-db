@@ -3,6 +3,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 import astropy.units as u
 from pathlib import Path
+import lsst.daf.butler as dafButler
 from joblib import Parallel, delayed
 import astropy.table
 import sys
@@ -39,7 +40,7 @@ def main():
     parser = argparse.ArgumentParser(description="Ingest data into Deep DB")
 
     parser.add_argument("fakes_dir", type=Path)
-    # parser.add_argument("repo", type=str)
+    parser.add_argument("repo", type=str)
     parser.add_argument("--dataset", type=str, default="injected_postISRCCD_catalog")
     parser.add_argument("--collections", type=str, default="DEEP/*")
     parser.add_argument("--db-url", required=True, help="Database URL")
@@ -50,6 +51,11 @@ def main():
 
     engine = create_engine(args.db_url, echo=args.echo)
     Base.metadata.create_all(engine)
+
+    # asteroid_population_states.fits
+    # tno_population_states.fits
+    # asteroid_ephem.fits
+    # tno_ephem_with_binaries.fits
 
     def ingest_fakes(rows):
         engine = create_engine(args.db_url, echo=args.echo)
@@ -63,29 +69,21 @@ def main():
                     vy=float(row['xv'][4]),
                     vz=float(row['xv'][5])
                 )
-                if 'aei' in row.colnames:
-                    keplerian_state = KeplerianState(
-                        a=float(row['aei'][0]),
-                        e=float(row['aei'][1]),
-                        i=float(row['aei'][2]),
-                        Omega=float(row['aei'][3]),
-                        omega=float(row['aei'][4]),
-                        M=float(row['aei'][5])
-                    )
-                else:
-                    keplerian_state = KeplerianState(
-                        a=float(row['a']),
-                        e=float(row['e']),
-                        i=float(row['i']),
-                        Omega=float(row['Omega']),
-                        omega=float(row['omega']),
-                        Tp=float(row['T_p'])
-                    )
+                keplerian_state = KeplerianState(
+                    a=float(row['aei'][0]),
+                    e=float(row['aei'][1]),
+                    i=float(row['aei'][2]),
+                    omega=float(row['aei'][3]),
+                    w=float(row['aei'][4]),
+                    M=float(row['aei'][5])
+                )
                 orbit = Orbit(
                     cartesian_state=cartesian_state,
                     keplerian_state=keplerian_state,
                     epoch=0.0,
                 )
+                
+
                 if row['ORBITID'] in binary_orbitids and 't' in row['object_name']:
                     for suffix in ["1", "2"]: # for each object in the binary
                         obj = session.query(SolarSystemObject).filter_by(name=row['object_name'] + f"_{suffix}", type='fake').first()
@@ -178,21 +176,17 @@ def main():
 
                 ra, dec, hp_index = ra_dec_to_coordinate(float(row['RA']) * u.deg, float(row['DEC']) * u.deg)
 
-                ccdcol = "DETECTOR"
-                ccdcol = "CCDNUM" if ccdcol not in row.colnames else ccdcol
-                ccdcol = None if ccdcol not in row.colnames else ccdcol
-
-                if ccdcol:
+                if "DETECTOR" in row.colnames:
                     detector_exposure = session.query(DetectorExposure).join(
                         Exposure, Exposure.id == DetectorExposure.exposure_id
                     ).join(
                         Detector, Detector.id == DetectorExposure.detector_id
                     ).filter(
                         Exposure.expnum == int(row['EXPNUM']),
-                        Detector.number == int(row[ccdcol])
+                        Detector.number == int(row['DETECTOR'])
                     ).first()
                     if detector_exposure is None:
-                        print(f"Missing DetectorExposure for object {row['object_name']} expnum {row['EXPNUM']} detector {row[ccdcol]}", file=sys.stderr)
+                        print(f"Missing DetectorExposure for object {row['object_name']} expnum {row['EXPNUM']} detector {row['DETECTOR']}", file=sys.stderr)
                         continue
                 else:
                     detector_exposure = session.query(DetectorExposure).join(
@@ -254,7 +248,6 @@ def main():
             session.commit()
 
     def ingest_ephemeris_from_butler(ref):
-        import lsst.daf.butler as dafButler
         engine = create_engine(args.db_url, echo=args.echo)
         _butler = dafButler.Butler(args.repo)
         butler = dafButler.Butler(
@@ -305,79 +298,62 @@ def main():
                 session.flush()
             session.commit()
 
-    binaries_file = "binary_properties.fits"
-    if (args.fakes_dir / binaries_file).exists():
-        asteroids_population_file = "asteroid_population_states.fits"
-        tno_population_file = 'tno_population_states.fits'
-        asteroid_properties_file = 'asteroid_properties.fits'
-        tno_properties_file = 'tno_properties.fits'
-        asteroid_ephem_file = 'asteroid_ephem.fits'
-        tno_ephem_file = 'tno_ephem_with_binaries.fits'
-    else:
-        binaries_file = 'fakes_binaryproperties.fits'
-        asteroids_population_file = 'asteroidorbits.fits'
-        tno_population_file = 'fakes_orbits.fits'
-        asteroid_properties_file = 'asteroidorbits.fits'
-        tno_properties_file = 'fakes_orbits.fits'
-        asteroid_ephem_file = 'fakeasteroids.fits'
-        tno_ephem_file = 'fakes_detections.fits'
-
-    binary_properties = astropy.table.Table.read(args.fakes_dir / binaries_file)
+    binary_properties = astropy.table.Table.read(args.fakes_dir / "binary_properties.fits")
     binary_properties['object_name'] = list(map(lambda x : 't' + str(x), binary_properties['ORBITID']))
     binary_orbitids = set(binary_properties['ORBITID'])
     chunk_size = 10_000
 
-    # ingest population states
-    for f in [asteroids_population_file, tno_population_file]:
-        print("opening", f, file=sys.stderr)
-        table = astropy.table.Table.read(args.fakes_dir / f)
-        if 'asteroid' in f:
-            table['object_name'] = list(map(lambda x : 'a' + str(x), table['ORBITID']))
-        else:
-            table['object_name'] = list(map(lambda x : 't' + str(x), table['ORBITID']))
-        total = len(table)
-        print("ingesting", total, "orbits from", f, file=sys.stderr)
+    # # ingest population states
+    # for f in ['asteroid_population_states.fits', 'tno_population_states.fits']:
+    #     print("opening", f, file=sys.stderr)
+    #     table = astropy.table.Table.read(args.fakes_dir / f)
+    #     if 'asteroid' in f:
+    #         table['object_name'] = list(map(lambda x : 'a' + str(x), table['ORBITID']))
+    #     else:
+    #         table['object_name'] = list(map(lambda x : 't' + str(x), table['ORBITID']))
+    #     total = len(table)
+    #     print("ingesting", total, "orbits from", f, file=sys.stderr)
 
-        Parallel(n_jobs=args.processes)(
-            delayed(ingest_fakes)(
-                chunk
-            )
-            for chunk in tqdm(yield_n_items(table, chunk_size), total=int(total/chunk_size + 0.5))
-        )
+    #     Parallel(n_jobs=args.processes)(
+    #         delayed(ingest_fakes)(
+    #             chunk
+    #         )
+    #         for chunk in tqdm(yield_n_items(table, chunk_size), total=int(total/chunk_size + 0.5))
+    #     )
     
-    chunk_size = 1_000
+    # chunk_size = 1_000
 
-    print("ingesting", len(binary_properties), "binary properties", file=sys.stderr)
-    # ingest binary properties
-    Parallel(n_jobs=args.processes)(
-        delayed(ingest_binary_properties)(
-            chunk
-        )
-        for chunk in tqdm(yield_n_items(binary_properties, chunk_size), total=int(len(binary_properties)/chunk_size + 0.5))
-    )
+    # print("ingesting", len(binary_properties), "binary properties", file=sys.stderr)
+    # # ingest binary properties
+    # Parallel(n_jobs=args.processes)(
+    #     delayed(ingest_binary_properties)(
+    #         chunk
+    #     )
+    #     for chunk in tqdm(yield_n_items(binary_properties, chunk_size), total=int(len(binary_properties)/chunk_size + 0.5))
+    # )
 
-    chunk_size = 10_000
-    # ingest light curve properties
-    for f in [asteroid_properties_file, tno_properties_file]:
-        print("opening", f, file=sys.stderr)
-        table = astropy.table.Table.read(args.fakes_dir / f)
-        if 'asteroid' in f:
-            table['object_name'] = list(map(lambda x : 'a' + str(x), table['ORBITID']))
-        else:
-            table['object_name'] = list(map(lambda x : 't' + str(x), table['ORBITID']))
-        total = len(table)
-        print("ingesting", total, "light curve properties from", f, file=sys.stderr)
+    # chunk_size = 10_000
+    # # ingest light curve properties
+    # for f in ['asteroid_properties.fits', 'tno_properties.fits']:
+    #     print("opening", f, file=sys.stderr)
+    #     table = astropy.table.Table.read(args.fakes_dir / f)
+    #     if 'asteroid' in f:
+    #         table['object_name'] = list(map(lambda x : 'a' + str(x), table['ORBITID']))
+    #     else:
+    #         table['object_name'] = list(map(lambda x : 't' + str(x), table['ORBITID']))
+    #     total = len(table)
+    #     print("ingesting", total, "light curve properties from", f, file=sys.stderr)
 
-        Parallel(n_jobs=args.processes)(
-            delayed(ingest_light_curve_properties)(
-                chunk
-            )
-            for chunk in tqdm(yield_n_items(table, chunk_size), total=int(total/chunk_size + 0.5))
-        )
+    #     Parallel(n_jobs=args.processes)(
+    #         delayed(ingest_light_curve_properties)(
+    #             chunk
+    #         )
+    #         for chunk in tqdm(yield_n_items(table, chunk_size), total=int(total/chunk_size + 0.5))
+    #     )
         
     # ingest ephem
     chunk_size = 10_000
-    for f in [asteroid_ephem_file, tno_ephem_file]:
+    for f in ['asteroid_ephem.fits', 'tno_ephem_with_binaries.fits']:
         table = astropy.table.Table.read(args.fakes_dir / f)
         if 'asteroid' in f:
             table['object_name'] = list(map(lambda x : 'a' + str(x), table['ORBITID']))
@@ -421,6 +397,6 @@ def main():
             )
             for chunk in tqdm(yield_n_items(table, chunk_size), total=int(total/chunk_size + 0.5))
         )
-
+        
 if __name__ == "__main__":
     main()

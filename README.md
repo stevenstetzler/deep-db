@@ -17,7 +17,7 @@ DEEP_DB="sqlite:///deep_db.db" python -m deep_db.query exposures
 
 # Query exposures for a specific field and night
 DEEP_DB="sqlite:///deep_db.db" python -m deep_db.query exposures \
-  --filter field=E1 night=20240101
+  --filter Field.name=A0a night=20190401
 
 # Query objects with selected output columns
 DEEP_DB="sqlite:///deep_db.db" python -m deep_db.query objects \

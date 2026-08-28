@@ -20,6 +20,9 @@ dependencies = [
     "astropy",
     "astropy-healpix",
     "sqlalchemy",
+    "requests",
+    "joblib",
+    "psycopg2",
 ]
 
 

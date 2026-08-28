@@ -245,8 +245,8 @@ class KeplerianState(Base):
     a = Column(Float)
     e = Column(Float)
     i = Column(Float)
-    Omega = Column(Float)
-    omega = Column(Float)
+    Om = Column(Float)
+    w = Column(Float)
     M = Column(Float, nullable=True)
     Tp = Column(Float, nullable=True)
 

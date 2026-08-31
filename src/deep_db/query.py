@@ -52,6 +52,7 @@ def main():
     parser.add_argument("--query", nargs="+", default=[], help="Columns to query")
     parser.add_argument("--all", action="store_true", help="Return all results")
     parser.add_argument("--log-level", default="INFO", help="Set the logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)")
+    parser.add_argument("--no-header", action="store_true")
 
     args = parser.parse_args()
 
@@ -122,9 +123,10 @@ def main():
             logger.debug(str(q))
             default_query = [['Exposure', 'expnum'], ['Exposure', 'band'], ['Exposure', 'exposure'], ['Field', 'name'], ['Night', 'night']] 
 
-            for cls, c in query or default_query:
-                print(f"{cls}.{c}", end=" ")
-            print()
+            if not args.no_header:
+                for cls, c in query or default_query:
+                    print(f"{cls}.{c}", end=" ")
+                print()
             if not args.all:
                 seen = set()
                 for exp, field, night in q:
@@ -222,9 +224,10 @@ def main():
             logger.debug(str(q))
 
             default_query = [['SolarSystemObject', 'name'], ['SolarSystemObject', 'type'], ['Exposure', 'expnum'], ['Ephemeris', 'ra'], ['Ephemeris', 'dec'], ['Field', 'name'], ['Night', 'night'], ['Detector', 'number']]
-            for cls, c in query or default_query:
-                print(f"{cls}.{c}", end=" ")
-            print()
+            if not args.no_header:
+                for cls, c in query or default_query:
+                    print(f"{cls}.{c}", end=" ")
+                print()
             if not args.all:
                 seen = set()
                 for result in q:

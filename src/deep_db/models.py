@@ -3,6 +3,7 @@ from sqlalchemy.orm import relationship, declarative_base
 from astropy_healpix import HEALPix
 import astropy.units as u
 from astropy.coordinates import SkyCoord
+import numpy as np
 
 """
 Taken from Bernardinelli DESTNOSIM https://github.com/bernardinelli/DESTNOSIM/blob/master/destnosim/des/ccd.py
@@ -88,6 +89,23 @@ def ra_dec_to_coordinate(ra, dec):
     hp_index = hp.lonlat_to_healpix(ra, dec)
     coord = SkyCoord(ra=ra, dec=dec, frame='icrs')
     return float(coord.ra.to(u.deg).value), float(coord.dec.to(u.deg).value), int(hp_index)
+
+def ra_dec_to_coordinate_array(ra, dec):
+    """
+    Vectorized version of `ra_dec_to_coordinate`.
+
+    ra, dec: astropy Quantity arrays (e.g. numpy arrays with units of deg)
+
+    Returns three numpy arrays: (ra_deg, dec_deg, hp_index) computed for the
+    whole input at once, avoiding the per-element overhead of constructing a
+    `SkyCoord` and querying `HEALPix` one element at a time.
+    """
+    hp_index = hp.lonlat_to_healpix(ra, dec)
+    coord = SkyCoord(ra=ra, dec=dec, frame='icrs')
+    ra_deg = np.asarray(coord.ra.to_value(u.deg))
+    dec_deg = np.asarray(coord.dec.to_value(u.deg))
+    hp_index = np.asarray(hp_index, dtype=int)
+    return ra_deg, dec_deg, hp_index
 
 Base = declarative_base()
 

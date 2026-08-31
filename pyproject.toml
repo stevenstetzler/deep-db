@@ -23,6 +23,9 @@ dependencies = [
     "requests",
     "joblib",
     "psycopg2",
+    "jorbit",
+    "sbident @ git+https://github.com/bengebre/sbident",
+    "shapely",
 ]
 
 

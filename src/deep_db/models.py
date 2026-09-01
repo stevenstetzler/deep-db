@@ -1,4 +1,4 @@
-from sqlalchemy import Integer, Table, Column, ForeignKey, String, Float, UniqueConstraint, JSON, DateTime, Index
+from sqlalchemy import Integer, Table, Column, ForeignKey, String, Float, UniqueConstraint, JSON, DateTime, Index, Numeric
 from sqlalchemy.orm import relationship, declarative_base
 from astropy_healpix import HEALPix
 import astropy.units as u
@@ -132,6 +132,7 @@ class Exposure(Base):
     caldat = Column(String)
     exposure = Column(Float)
     obstime = Column(DateTime)
+    obstime_end = Column(DateTime)
     mjd = Column(Float)
     midpoint = Column(DateTime)
     midpoint_mjd = Column(Float)
@@ -153,6 +154,10 @@ class DetectorExposure(Base):
     __table_args__ = (
         UniqueConstraint('detector_id', 'exposure_id', name='detector_exposure_uc'),
     )
+
+    # obstime
+    obstime_start = Column(DateTime)
+    obstime_end = Column(DateTime)
 
     # center
     ra = Column(Float)
@@ -270,40 +275,40 @@ class KeplerianState(Base):
 
     orbit = relationship("Orbit", back_populates="keplerian_state")
 
-class MPCTracklet(Base):
-    __tablename__ = 'mpc_tracklet'
-    id = Column(Integer, primary_key=True)
-    trksub = Column(String, index=True)
-    trkid = Column(String, index=True)
-    object_id = Column(Integer, ForeignKey('solar_system_object.id'), nullable=True, index=True)
+# class MPCTracklet(Base):
+#     __tablename__ = 'mpc_tracklet'
+#     id = Column(Integer, primary_key=True)
+#     trksub = Column(String, index=True)
+#     trkid = Column(String, index=True)
+#     object_id = Column(Integer, ForeignKey('solar_system_object.id'), nullable=True, index=True)
 
-    __table_args__ = (
-        UniqueConstraint('object_id', 'trksub', 'trkid', name='object_trksub_trkid_uc'),
-    )
+#     __table_args__ = (
+#         UniqueConstraint('object_id', 'trksub', 'trkid', name='object_trksub_trkid_uc'),
+#     )
 
-    object = relationship("SolarSystemObject")
+#     object = relationship("SolarSystemObject")
 
-class MPCObservation(Base):
-    __tablename__ = 'mpc_observation'
-    id = Column(Integer, primary_key=True)
-    tracklet_id = Column(Integer, ForeignKey('mpc_tracklet.id'), nullable=False, index=True)
-    detector_exposure_id = Column(Integer, ForeignKey('detector_exposure.id'), nullable=True, index=True)
+# class MPCObservation(Base):
+#     __tablename__ = 'mpc_observation'
+#     id = Column(Integer, primary_key=True)
+#     tracklet_id = Column(Integer, ForeignKey('mpc_tracklet.id'), nullable=False, index=True)
+#     detector_exposure_id = Column(Integer, ForeignKey('detector_exposure.id'), nullable=True, index=True)
 
-    __table_args__ = (
-        UniqueConstraint('tracklet_id', 'detector_exposure_id', name='tracklet_detector_exposure_uc'),
-    )
+#     __table_args__ = (
+#         UniqueConstraint('tracklet_id', 'detector_exposure_id', name='tracklet_detector_exposure_uc'),
+#     )
 
-    obstime = Column(DateTime, index=True)
-    ra = Column(Float)
-    dec = Column(Float)
-    hp_index = Column(Integer, index=True)
+#     obstime = Column(DateTime, index=True)
+#     ra = Column(Float)
+#     dec = Column(Float)
+#     hp_index = Column(Integer, index=True)
 
-    mag = Column(Float)
-    band = Column(String)
-    status = Column(String)
+#     mag = Column(Float)
+#     band = Column(String)
+#     status = Column(String)
 
-    tracklet = relationship("MPCTracklet")
-    detector_exposure = relationship("DetectorExposure")
+#     tracklet = relationship("MPCTracklet")
+#     detector_exposure = relationship("DetectorExposure")
 
 class FakeLightCurveProperties(Base):
     __tablename__ = 'fakes_light_curve_properties'
@@ -405,6 +410,19 @@ class Cutout(Base):
     height = Column(Integer)
     
     ephemeris_detector_location = relationship("EphemerisDetectorLocation")
+
+class MPCObservation(Base):
+    __tablename__ = "mpc_observation"
+
+    id = Column(String, primary_key=True) # equal to obsid
+    trkid = Column(String, index=True)
+    trksub = Column(String, index=True)
+    packed_designation = Column(String, index=True)
+    ra = Column(Numeric)
+    dec = Column(Numeric)
+    obstime = Column(DateTime)
+    status = Column(String)
+    hp_index = Column(Integer, index=True)
 
 class Photometry(Base):
     __tablename__ = "photometry"

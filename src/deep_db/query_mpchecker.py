@@ -10,6 +10,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, selectinload, contains_eager
 import logging
 import sys
+from sys import stderr
 from collections import defaultdict
 from joblib import Parallel, delayed
 
@@ -110,6 +111,7 @@ def main():
                 observer="cerro tololo observatory, la serena",
             )
 
+        did_header = False
         for exposure, coord, time, radius in get_info(grouped_exposures.items()):
             detectors = grouped_exposures[exposure]
             boxes = [
@@ -121,11 +123,15 @@ def main():
             ]
             tree = STRtree(boxes)
             for obj in get_objects(coord, time, radius):
+                if not args.no_header and not did_header:
+                    print("|".join(["expnum", "detector"] + list(map(str, obj.columns))))
+                    did_header = True
                 point = Point(obj['ra'], obj['dec'])
                 match_index = tree.query(point)
                 if len(match_index) > 0:
                     matched_detector, matched_det_exp = detectors[match_index[0]]
-                    print("|".join(map(str, [exposure.expnum, matched_detector.number, obj['Unpacked Name'], obj['ra'], obj['dec'], obj['est. Vmag'][0]])))
+                    print("|".join(map(str, [exposure.expnum, matched_detector.number] + list(obj))))
+                    # print("|".join(map(str, [exposure.expnum, matched_detector.number, obj['Packed designation'], obj['Unpacked Name'], obj['ra'], obj['dec'], obj['est. Vmag'][0]])))
 
         # for exposure, coord, time, radius in get_info(q):
         #     for obj in get_objects(coord, time, radius):

@@ -115,8 +115,10 @@ def main():
             exptime_arr = np.array([float(row['exposure']) for row in new_exposure_rows])
             obstime_arr = astropy.time.Time(mjd_arr, format='mjd')
             midpoint_arr = obstime_arr + astropy.time.TimeDelta(exptime_arr / 2, format='sec')
+            obstime_end_arr = obstime_arr + astropy.time.TimeDelta(exptime_arr, format='sec')
             obstime_dt = obstime_arr.to_datetime()
             midpoint_dt = midpoint_arr.to_datetime()
+            obstime_end_dt = obstime_end_arr.to_datetime()
 
             insert_rows = []
             for idx, row in enumerate(new_exposure_rows):
@@ -133,6 +135,7 @@ def main():
                     "exposure": float(row['exposure']),
                     "obstime": obstime_dt[idx],
                     "midpoint": midpoint_dt[idx],
+                    "obstime_end": obstime_end_dt[idx],
                     "mjd": float(row['mjd']),
                     "midpoint_mjd": float(row['mjd_midpoint']),
                     "band": str(row['band']),
@@ -145,6 +148,12 @@ def main():
 
         expnum_to_exposure_id = dict(
             session.execute(select(Exposure.expnum, Exposure.id)).all()
+        )
+        exposure_id_to_obstime = dict(
+            session.execute(select(Exposure.id, Exposure.obstime)).all()
+        )
+        exposure_id_to_obstime_end = dict(
+            session.execute(select(Exposure.id, Exposure.obstime_end)).all()
         )
 
         # --- DetectorExposures: bulk insert, skipping existing (exposure, detector) pairs ---
@@ -210,9 +219,13 @@ def main():
 
             insert_rows = []
             for idx, (row, detector, exposure_id, detector_id) in enumerate(combos):
+                obstime_start = exposure_id_to_obstime[exposure_id]
+                obstime_end = exposure_id_to_obstime_end[exposure_id]
                 insert_rows.append({
                     "detector_id": detector_id,
                     "exposure_id": exposure_id,
+                    "obstime_start": obstime_start,
+                    "obstime_end": obstime_end,
                     "ra": float(ra_c[idx]),
                     "dec": float(dec_c[idx]),
                     "hp_index": int(hp_c[idx]),

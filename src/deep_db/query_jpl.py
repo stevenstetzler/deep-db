@@ -2,10 +2,12 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from sbident import SBIdent
 from astropy.time import Time
+from astropy.table import Table
 from astropy.coordinates import SkyCoord
 import astropy.units as u
 from astroquery.jplhorizons import Horizons
 import re
+import sys
 from .models import Base, Exposure, SolarSystemObject, Ephemeris, DetectorExposure, ra_dec_to_coordinate
 
 
@@ -14,7 +16,8 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--db", required=True, help="Database URL")
-    parser.add_argument("--location", default="w84", type=str, help="Observatory location code")
+    parser.add_argument("--location", default="W84", type=str, help="Observatory location code")
+    parser.add_argument("--filter", type=str, nargs="+")
 
     args = parser.parse_args()
 
@@ -31,7 +34,16 @@ def main():
         return r[['Object name', 'time', 'EXPNUM']]
 
     with Session(engine) as session:
-        for exposure in session.query(Exposure):
+        q = session.query(Exposure)
+        for filt in args.filter:
+            k, v = filt.split("=")
+            if k == "expnum":
+                q = q.filter(Exposure.expnum == int(v))
+            else:
+                raise Exception(f"filter on {k} not supported")
+
+        ephem = []
+        for exposure in q:
             epoch = Time(exposure.midpoint_mjd, format='mjd')
             center = SkyCoord(ra=exposure.ra*u.deg, dec=exposure.dec*u.deg)
             for row in query_sbident(
@@ -84,7 +96,7 @@ def main():
                     print(f"Missing DetectorExposure for expnum {exposure.expnum} object {object_id} ra {ephem['RA'][0]} dec {ephem['DEC'][0]}")
                     continue
 
-                ephemeris = Ephemeris(
+                ephemeris = dict(
                     object=obj,
                     detector_exposure=de,
                     ra=ra,
@@ -97,9 +109,14 @@ def main():
                     delta=row['delta'],
                     r=row['r'],
                 )
-                session.add(ephemeris)
-                session.flush()
-        session.commit()
+                ephem.append(ephemeris)
+        #         session.add(ephemeris)
+        #         session.flush()
+        # session.commit()
+        if len(ephem) > 0:
+            ephem = Table(ephem)
+            ephem.write(sys.stdout, format='ascii.ecsv')
+
 
 if __name__ == "__main__":
     main()

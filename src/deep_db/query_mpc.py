@@ -237,24 +237,24 @@ def main():
             func.max(Exposure.exposure)
         ).join(Exposure).group_by(Night.night).order_by(Night.night).all()
 
-        # logger.info(f"Starting parallel object query with {args.processes} processes")
-        # provids = Parallel(n_jobs=args.processes)(
-        #     delayed(query_objects)(tmin, tmax, exp) for _, tmin, tmax, exp in night_data
-        # )
-        # provids = set().union(*provids)
-        # for provid in provids:
-        #     logger.debug(f"querying object {provid}")
-        #     obj = deep_db.query(SolarSystemObject).filter_by(name=provid, type='mpc').first()
-        #     if obj is None:
-        #         logger.debug(f"adding object {provid}")
-        #         obj = SolarSystemObject(name=provid, type='mpc')
-        #         deep_db.add(obj)
-        #     deep_db.commit()
+        logger.info(f"Starting parallel object query with {args.processes} processes")
+        provids = Parallel(n_jobs=args.processes)(
+            delayed(query_objects)(tmin, tmax, exp) for _, tmin, tmax, exp in night_data
+        )
+        provids = set().union(*provids)
+        for provid in provids:
+            logger.debug(f"querying object {provid}")
+            obj = deep_db.query(SolarSystemObject).filter_by(name=provid, type='mpc').first()
+            if obj is None:
+                logger.debug(f"adding object {provid}")
+                obj = SolarSystemObject(name=provid, type='mpc')
+                deep_db.add(obj)
+            deep_db.commit()
         
-        # logger.info(f"Starting parallel tracklet query with {args.processes} processes")
-        # Parallel(n_jobs=args.processes)(
-        #     delayed(add_tracklets)(tmin, tmax, exp) for _, tmin, tmax, exp in night_data
-        # )
+        logger.info(f"Starting parallel tracklet query with {args.processes} processes")
+        Parallel(n_jobs=args.processes)(
+            delayed(add_tracklets)(tmin, tmax, exp) for _, tmin, tmax, exp in night_data
+        )
         
         logger.info(f"Starting parallel observation query {args.processes} processes")
         results = Parallel(n_jobs=args.processes, return_as='generator')(

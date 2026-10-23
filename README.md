@@ -1,6 +1,6 @@
 # deep-db: A Database of Moving Objects for the DECam Ecliptic Exploration Project (DEEP)
 
-`deep-db` is a Python project for building and querying a database of moving objects in the DECam images taken for the DECam Ecliptic Exploration Project (DEEP).
+`deep-db` is a Python project for building and querying a database of moving objects in the DECam images taken for the DECam Ecliptic Exploration Project ([DEEP](https://iopscience.iop.org/collections/aj-240206-01)).
 
 ![The predicted ephemeris and submitted observations of asteroid 833555 (2010 KD51)](data/2010_KD51.png)
 

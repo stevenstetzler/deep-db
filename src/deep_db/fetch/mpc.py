@@ -1,5 +1,3 @@
-from deep_db.query import query
-
 def fetch_rows_for_exposures(mpc_session, exposures):
     """
     query the mpc_sbn joined tables to get the rows for the provided exposures

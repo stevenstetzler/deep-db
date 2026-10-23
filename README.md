@@ -60,8 +60,7 @@ $ deep-db query objects provid --night 20190401 | head -n 5
 
 And to get the ephemeris of one of those objects:
 ```
-$ deep-db query object-ephemeris Exposure.obstime MPCheckerEphemeris.ra MPCheckerEphemeris.dec -
--night 20190401 --provid '2019 GA179'
+$ deep-db query object-ephemeris Exposure.obstime MPCheckerEphemeris.ra MPCheckerEphemeris.dec --night 20190401 --provid '2019 GA179'
 2019-04-02 05:06:18.382875|215.5635902024823|-13.383243916144291
 2019-04-02 05:08:50.857950|215.5633638070001|-13.382999174050177
 2019-04-02 05:11:20.439030|215.5631416476191|-13.382759039577335
@@ -71,14 +70,14 @@ $ deep-db query object-ephemeris Exposure.obstime MPCheckerEphemeris.ra MPChecke
 2019-04-02 09:33:27.396769|215.53975422623958|-13.357301124956853
 ```
 
-Or to get the survey nights for which one of those objects has MPC submitted observations:
+Or to get the survey nights for which one of those objects has MPC submitted observations ingested:
 ```
 $ deep-db query survey night --provid '2019 GA179' --join mpc_observation
 20190401
 20190402
 ```
 
-and for which it has a predicted location:
+and for which it has a predicted location ingested:
 ```
 $ deep-db query survey night --provid '2019 GA179' --join mpchecker_ephemeris
 20190401

@@ -20,8 +20,14 @@ dependencies = [
     "astropy",
     "astropy-healpix",
     "sqlalchemy",
+    "psycopg2",
+    "click",
+    "matplotlib",
+    "jorbit"
 ]
 
+[project.scripts]
+deep-db = "deep_db.cli:main"
 
 [project.urls]
 "Source Code" = "https://github.com/stevenstetzler/deep_db"

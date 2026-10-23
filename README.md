@@ -125,3 +125,9 @@ $ deep-db visualize known-objects --provid '2010 KD51' --output data/2010_KD51.p
 ## The Database
 
 The moving object database is stored in a SQLite file, which is automatically downloaded from a remote server. It is stored in a cache directory on your computer. If you wish to re-create or query the database from another location, you can set the `DEEP_DB` environment variable to a valid SQLAlchemy connection string and utilize the `deep-db {database,fetch,ingest}` commands to create the database, ingest the survey geometry from the `data/exposures_object_raw.ecsv` (DEEP exposure table) and the `data/field_table.ecsv` (DEEP observing field table).
+
+## Ackowledgements
+
+This repository has made use of data and/or services provided by the International Astronomical Union's Minor Planet Center.
+
+Portions of the code in this repository have been built using AI tools, including Copilot, Gemini, ChatGPT, and Claude.

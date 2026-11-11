@@ -1,3 +1,6 @@
+import logging
+logger = logging.getLogger(__name__)
+
 def _type_or_none(value, _type):
     import numpy as np
     """Plain int, or None for None / masked / NaN."""
@@ -139,6 +142,19 @@ def _refresh_tracklet_objects(session, tracklet_ids):
         for t in session.query(MPCTracklet).filter(MPCTracklet.id.in_(batch)):
             n, lo = agg.get(t.id, (0, None))
             object_id = lo if n == 1 else None
+            if n > 1:
+                object_ids = sorted(
+                    oid for (oid,) in session.query(MPCObservation.object_id)
+                    .filter(MPCObservation.mpc_tracklet_id == t.id,
+                            MPCObservation.object_id.isnot(None))
+                    .distinct()
+                )
+                logger.warning(
+                    "MPC tracklet trkid=%s trksub=%s has observations attributed to %d "
+                    "different objects (mpc_object ids %s); setting mpc_tracklet.object_id "
+                    "to NULL. MPC has likely reused this trkid across objects.",
+                    t.trkid, t.trksub, n, object_ids,
+                )
             if t.object_id != object_id:
                 t.object_id = object_id
     session.commit()

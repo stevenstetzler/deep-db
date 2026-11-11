@@ -23,7 +23,8 @@ dependencies = [
     "psycopg2",
     "click",
     "matplotlib",
-    "jorbit"
+    "jorbit",
+    "requests",
 ]
 
 [project.scripts]

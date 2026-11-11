@@ -26,9 +26,8 @@ def _upsert_mpc_rows(session, rows):
     2. Fetch the MPCTracklet rows already in the database for every
        (trkid, trksub) pair the rows cover (in batches, same reasoning as
        _upsert_mpchecker_rows), then bulk-insert a new MPCTracklet for each
-       pair not already present, or update the existing one's
-       designation_id if it's changed (MPC's identification of a
-       tracklet's object can be revised over time).
+       pair not already present. Its object_id is set after step 3, from
+       its observations: NULL if they disagree (see _refresh_tracklet_objects).
     3. Fetch the MPCObservation rows already in the database for every
        obsid the rows cover (also batched), then bulk-insert a new
        MPCObservation for each obsid not already present, or update the
@@ -65,14 +64,11 @@ def _upsert_mpc_rows(session, rows):
     new_tracklets = []
     for r in rows:
         key = (r['trkid'], r['trksub'])
-        object_id = object_ids[r['designation']]
-        existing = existing_tracklets.get(key)
-        if existing is None:
-            tracklet = MPCTracklet(object_id=object_id, trkid=key[0], trksub=key[1])
+        if key not in existing_tracklets:
+            # object_id is derived from the tracklet's observations below
+            tracklet = MPCTracklet(object_id=None, trkid=key[0], trksub=key[1])
             new_tracklets.append(tracklet)
             existing_tracklets[key] = tracklet  # dedup repeated keys within this batch
-        elif existing.object_id != object_id:
-            existing.object_id = object_id
     if new_tracklets:
         session.add_all(new_tracklets)
         session.flush()  # populate ids for newly created tracklets
@@ -114,7 +110,38 @@ def _upsert_mpc_rows(session, rows):
         session.add_all(new_observations)
     session.commit()
 
+    _refresh_tracklet_objects(session, set(tracklet_ids.values()))
+
     return object_ids
+
+def _refresh_tracklet_objects(session, tracklet_ids):
+    """
+    Set MPCTracklet.object_id from the tracklet's observations: the single
+    object they all agree on, or NULL if they attribute it to more than one
+    object (MPC sometimes reuses one trkid across objects) or to none. The
+    per-observation object_id stays the source of truth in the conflicting
+    case. Observations with a NULL object_id are ignored.
+    """
+    from sqlalchemy import func
+    from deep_db.database.mpc import MPCTracklet, MPCObservation
+
+    for batch in _chunked(tracklet_ids, 500):
+        agg = {
+            tid: (n, lo)
+            for tid, n, lo in session.query(
+                MPCObservation.mpc_tracklet_id,
+                func.count(func.distinct(MPCObservation.object_id)),
+                func.min(MPCObservation.object_id),
+            )
+            .filter(MPCObservation.mpc_tracklet_id.in_(batch))
+            .group_by(MPCObservation.mpc_tracklet_id)
+        }
+        for t in session.query(MPCTracklet).filter(MPCTracklet.id.in_(batch)):
+            n, lo = agg.get(t.id, (0, None))
+            object_id = lo if n == 1 else None
+            if t.object_id != object_id:
+                t.object_id = object_id
+    session.commit()
 
 def ingest_mpc(session, table):
     from sqlalchemy import tuple_

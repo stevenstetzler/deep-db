@@ -94,3 +94,27 @@ def export(ctx, url, batch_size, echo=False):
                     total += len(batch)
             if total:
                 logger.info("Exported %d rows from %s", total, table.name)
+
+@database.command()
+@click.pass_context
+def backfill_exposure_mjd(ctx):
+    """
+    Backfill exposure.mjd and exposure.midpoint_mjd from exposure.obstime
+    and exposure.midpoint for rows ingested before ingest_survey() started
+    setting those columns (see GitHub issue #4).
+    """
+    from astropy.time import Time
+    from sqlalchemy.orm import Session
+    from deep_db.database import get_db
+    from deep_db.database.survey import Exposure
+
+    engine = get_db()
+    with Session(engine) as session:
+        exposures = session.query(Exposure).filter(
+            (Exposure.mjd.is_(None)) | (Exposure.midpoint_mjd.is_(None))
+        ).all()
+        for exposure in exposures:
+            exposure.mjd = float(Time(exposure.obstime, scale='utc').mjd)
+            exposure.midpoint_mjd = float(Time(exposure.midpoint, scale='utc').mjd)
+        session.commit()
+        logger.info("Backfilled mjd/midpoint_mjd for %d exposure row(s)", len(exposures))

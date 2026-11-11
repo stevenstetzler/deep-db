@@ -95,7 +95,9 @@ def ingest_survey(exposures, field_table):
                 caldat=str(row['caldat']),
                 exposure_time=float(row['exposure']),
                 obstime=obstime.utc.datetime,
+                mjd=float(obstime.utc.mjd),
                 midpoint=midpoint.utc.datetime,
+                midpoint_mjd=float(midpoint.utc.mjd),
                 band=str(row['band']),
                 target=str(row['OBJECT']),
             )

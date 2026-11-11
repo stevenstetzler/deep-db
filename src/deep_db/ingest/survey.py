@@ -5,7 +5,7 @@ def ingest_survey(exposures, field_table):
     from deep_db.database.survey import Detector, Field, Night, Exposure, DetectorExposure
     from deep_db.database import get_db
     from deep_db.util.decam import ccdBounds, ccd_num_to_name
-    from deep_db.util.coord import ra_dec_to_coordinate
+    from deep_db.util.coord import ra_dec_to_coordinate, gnomonic_to_sky
 
     engine = get_db()
     with Session(engine) as session:
@@ -115,12 +115,18 @@ def ingest_survey(exposures, field_table):
                     continue
 
                 xmin, xmax, ymin, ymax = bounds
-                
-                ra_center, dec_center, hp_index_c = ra_dec_to_coordinate((row_ra + (xmax + xmin) / 2) * deg, (row_dec + (ymax + ymin) / 2) * deg)
-                ra_00, dec_00, hp_index_00 = ra_dec_to_coordinate((row_ra + xmin) * deg, (row_dec + ymin) * deg)
-                ra_01, dec_01, hp_index_01 = ra_dec_to_coordinate((row_ra + xmax) * deg, (row_dec + ymin) * deg)
-                ra_10, dec_10, hp_index_10 = ra_dec_to_coordinate((row_ra + xmin) * deg, (row_dec + ymax) * deg)
-                ra_11, dec_11, hp_index_11 = ra_dec_to_coordinate((row_ra + xmax) * deg, (row_dec + ymax) * deg)
+
+                ra_c_s, dec_c_s = gnomonic_to_sky((xmax + xmin) / 2, (ymax + ymin) / 2, row_ra, row_dec)
+                ra_00_s, dec_00_s = gnomonic_to_sky(xmin, ymin, row_ra, row_dec)
+                ra_01_s, dec_01_s = gnomonic_to_sky(xmax, ymin, row_ra, row_dec)
+                ra_10_s, dec_10_s = gnomonic_to_sky(xmin, ymax, row_ra, row_dec)
+                ra_11_s, dec_11_s = gnomonic_to_sky(xmax, ymax, row_ra, row_dec)
+
+                ra_center, dec_center, hp_index_c = ra_dec_to_coordinate(ra_c_s * deg, dec_c_s * deg)
+                ra_00, dec_00, hp_index_00 = ra_dec_to_coordinate(ra_00_s * deg, dec_00_s * deg)
+                ra_01, dec_01, hp_index_01 = ra_dec_to_coordinate(ra_01_s * deg, dec_01_s * deg)
+                ra_10, dec_10, hp_index_10 = ra_dec_to_coordinate(ra_10_s * deg, dec_10_s * deg)
+                ra_11, dec_11, hp_index_11 = ra_dec_to_coordinate(ra_11_s * deg, dec_11_s * deg)
 
                 det_exposures_to_add.append(
                     DetectorExposure(

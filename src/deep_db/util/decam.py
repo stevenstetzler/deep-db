@@ -74,3 +74,24 @@ ccd_name_to_num =  {
     'N19': 50, 'N20':  51, 'N21':  52, 'N22':  53, 'N23':  54, 'N24':  55, 'N25':  56, 'N26':  57, 'N27':  58, 'N28':  59, 'N29':  60, 'N30':  61, 'N31':  62
 }
 ccd_num_to_name = {v: k for k, v in ccd_name_to_num.items()}
+
+
+def assign_detector_number(ra, dec, ra0, dec0):
+    """
+    Vectorized chip lookup. For sky positions (ra, dec) (degrees, arrays) seen
+    with boresight (ra0, dec0), return the DECam detector number whose
+    ccdBounds contain the position in the tangent plane about the boresight
+    (first match), or 0 where no chip contains it.
+    """
+    import numpy as np
+    from deep_db.util.coord import sky_to_gnomonic
+
+    nums = np.array(sorted(ccd_name_to_num.values()))
+    bounds = np.array([ccdBounds[ccd_num_to_name[n]] for n in nums])  # (62, 4)
+    xi, eta = sky_to_gnomonic(ra, dec, ra0, dec0)
+    xi, eta = np.atleast_1d(xi)[:, None], np.atleast_1d(eta)[:, None]
+    inside = (
+        (bounds[:, 0] <= xi) & (xi <= bounds[:, 1])
+        & (bounds[:, 2] <= eta) & (eta <= bounds[:, 3])
+    )
+    return np.where(inside.any(axis=1), nums[inside.argmax(axis=1)], 0)

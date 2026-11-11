@@ -128,3 +128,18 @@ def test_contains_unwrapped_ra():
     ra, dec = gnomonic_to_sky(0.0, 0.08, 359.9, 8.0)
     assert de.contains((ra - 360.0) * deg, dec * deg)
     assert de.contains((ra + 360.0) * deg, dec * deg)
+
+
+def test_assign_detector_number_matches_contains():
+    from deep_db.util.decam import assign_detector_number
+
+    ra0, dec0 = 359.9, 8.0
+    rng = np.random.default_rng(2)
+    xi = rng.uniform(-1.2, 1.2, 300)
+    eta = rng.uniform(-1.1, 1.1, 300)
+    ra, dec = gnomonic_to_sky(xi, eta, ra0, dec0)
+    got = assign_detector_number(ra, dec, np.full(300, ra0), np.full(300, dec0))
+    des = {ccd_name_to_num[n]: make_de(n, ra0, dec0) for n in ccdBounds}
+    for r, d, g in zip(ra, dec, got):
+        hits = [num for num, de in des.items() if contains(de, r, d)]
+        assert g == (hits[0] if hits else 0)

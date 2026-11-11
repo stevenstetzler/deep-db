@@ -18,7 +18,7 @@ from collections import Counter
 import numpy as np
 
 from deep_db.util.coord import sky_to_gnomonic
-from deep_db.util.decam import ccdBounds, ccd_name_to_num
+from deep_db.util.decam import assign_detector_number, ccdBounds, ccd_name_to_num
 
 # (table, primary key column, ra column, dec column)
 TABLES = [
@@ -28,18 +28,7 @@ TABLES = [
 
 CHIP_NUMS = np.array(sorted(ccd_name_to_num.values()))
 _num_to_name = {v: k for k, v in ccd_name_to_num.items()}
-BOUNDS = np.array([ccdBounds[_num_to_name[n]] for n in CHIP_NUMS])  # (62, 4)
-
-
-def assign_detnum(ra, dec, ra0, dec0):
-    """Chip number (first match, like fetch/mpc.py) or 0 for none, vectorized."""
-    xi, eta = sky_to_gnomonic(ra, dec, ra0, dec0)
-    xi, eta = xi[:, None], eta[:, None]
-    inside = (
-        (BOUNDS[:, 0] <= xi) & (xi <= BOUNDS[:, 1])
-        & (BOUNDS[:, 2] <= eta) & (eta <= BOUNDS[:, 3])
-    )  # (n, 62)
-    return np.where(inside.any(axis=1), CHIP_NUMS[inside.argmax(axis=1)], 0)
+BOUNDS = np.array([ccdBounds[_num_to_name[n]] for n in CHIP_NUMS])  # (62, 4), edge-distance calc below
 
 
 def report(con, table, pk, ra_col, dec_col):
@@ -68,7 +57,7 @@ def report(con, table, pk, ra_col, dec_col):
     dec0 = np.array([r[6] for r in rows], float)
     old_det = np.array([r[7] if r[7] is not None else 0 for r in rows])
 
-    new_det = assign_detnum(ra, dec, ra0, dec0)
+    new_det = assign_detector_number(ra, dec, ra0, dec0)
 
     old_null, new_null = old_det == 0, new_det == 0
     print(f"\n== {table}: {n:,} rows")

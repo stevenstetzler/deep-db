@@ -67,6 +67,10 @@ def download_db():
             pass
         # Re-check: another process may have finished the download while we waited.
         if not up_to_date():
+            # We hold the lock, so any .part file is left over from a killed download.
+            for stale in cache_dir.glob(DB_NAME + ".*.part"):
+                logger.info("Removing stale partial download %s", stale)
+                stale.unlink(missing_ok=True)
             logger.info("Downloading remote database from %s to %s", REMOTE_DB_URL, db_path)
             fd, tmp_name = tempfile.mkstemp(dir=cache_dir, prefix=DB_NAME + ".", suffix=".part")
             try:

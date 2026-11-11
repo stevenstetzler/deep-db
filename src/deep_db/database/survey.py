@@ -5,6 +5,7 @@ This defines the survey as a database schema
 from sqlalchemy import Integer, Column, ForeignKey, String, Float, UniqueConstraint, JSON, DateTime, Index
 from sqlalchemy.orm import relationship, declarative_base
 from astropy_healpix import HEALPix
+import numpy as np
 import astropy.units as u
 from astropy.coordinates import SkyCoord
 from deep_db.database.models import Base
@@ -94,10 +95,17 @@ class DetectorExposure(Base):
     exposure = relationship("Exposure", back_populates="detector_exposures")
 
     def contains(self, ra, dec):
-        ra, dec, _ = ra_dec_to_coordinate(ra, dec)
+        """
+        Whether (ra, dec) falls on this chip. ra/dec may be scalars or arrays
+        (astropy Quantities or degrees); returns a bool for scalar input and a
+        boolean array otherwise.
+        """
+        ra = np.mod(u.Quantity(ra, u.deg).to_value(u.deg), 360.0)
+        dec = u.Quantity(dec, u.deg).to_value(u.deg)
         xi, eta = sky_to_gnomonic(ra, dec, self.exposure.ra, self.exposure.dec)
         xmin, xmax, ymin, ymax = ccdBounds[ccd_num_to_name[self.detector.number]]
-        return xmin <= xi <= xmax and ymin <= eta <= ymax
+        inside = (xmin <= xi) & (xi <= xmax) & (ymin <= eta) & (eta <= ymax)
+        return bool(inside) if np.ndim(inside) == 0 else inside
 
 class Night(Base):
     __tablename__ = 'night'

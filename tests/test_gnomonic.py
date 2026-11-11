@@ -106,3 +106,25 @@ def test_array_boresights_broadcast():
     ra, dec = gnomonic_to_sky(0.5, -0.3, ra0, dec0)
     xi, eta = sky_to_gnomonic(ra, dec, ra0, dec0)
     assert np.allclose(xi, 0.5) and np.allclose(eta, -0.3)
+
+
+@pytest.mark.parametrize("ra0,dec0", [(150.0, 10.0), (359.9, 8.0)])
+def test_contains_vectorized_matches_scalar(ra0, dec0):
+    rng = np.random.default_rng(1)
+    xi = rng.uniform(-1.2, 1.2, 200)
+    eta = rng.uniform(-1.1, 1.1, 200)
+    ra, dec = gnomonic_to_sky(xi, eta, ra0, dec0)
+    for name in ("N7", "S10", "N30", "S4"):
+        de = make_de(name, ra0, dec0)
+        vec = de.contains(ra * deg, dec * deg)
+        assert vec.shape == ra.shape and vec.dtype == bool
+        assert vec.tolist() == [de.contains(r * deg, d * deg) for r, d in zip(ra, dec)]
+        assert np.array_equal(vec, de.contains(ra, dec))  # plain degrees too
+    assert isinstance(make_de("N7", ra0, dec0).contains(ra0 * deg, dec0 * deg), bool)
+
+
+def test_contains_unwrapped_ra():
+    de = make_de("S4", 359.9, 8.0)
+    ra, dec = gnomonic_to_sky(0.0, 0.08, 359.9, 8.0)
+    assert de.contains((ra - 360.0) * deg, dec * deg)
+    assert de.contains((ra + 360.0) * deg, dec * deg)

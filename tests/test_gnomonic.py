@@ -80,3 +80,29 @@ def test_flat_offsets_were_wrong_at_dec30():
     flat_ra = ra0 + xmax
     assert abs(ra - flat_ra) * 3600 > 100
     assert contains(make_de("N7", ra0, dec0), *gnomonic_to_sky(xmax - 0.01, ymax - 0.01, ra0, dec0))
+
+
+@pytest.mark.parametrize("ra0,dec0", BORESIGHTS)
+def test_vectorized_matches_scalar(ra0, dec0):
+    xi, eta = np.meshgrid(np.linspace(-1.1, 1.1, 9), np.linspace(-1.0, 1.0, 7))
+    ra, dec = gnomonic_to_sky(xi, eta, ra0, dec0)
+    assert ra.shape == dec.shape == xi.shape
+    assert np.all((ra >= 0) & (ra < 360))
+    xi2, eta2 = sky_to_gnomonic(ra, dec, ra0, dec0)
+    assert np.allclose(xi, xi2, atol=1e-10) and np.allclose(eta, eta2, atol=1e-10)
+    for i in np.ndindex(xi.shape):
+        r, d = gnomonic_to_sky(xi[i], eta[i], ra0, dec0)
+        assert r == pytest.approx(ra[i]) and d == pytest.approx(dec[i])
+
+
+def test_scalar_inputs_return_floats():
+    assert all(isinstance(v, float) for v in gnomonic_to_sky(0.1, 0.2, 10.0, 5.0))
+    assert all(isinstance(v, float) for v in sky_to_gnomonic(10.1, 5.2, 10.0, 5.0))
+
+
+def test_array_boresights_broadcast():
+    ra0 = np.array([10.0, 200.0, 359.9])
+    dec0 = np.array([5.0, -20.0, 12.0])
+    ra, dec = gnomonic_to_sky(0.5, -0.3, ra0, dec0)
+    xi, eta = sky_to_gnomonic(ra, dec, ra0, dec0)
+    assert np.allclose(xi, 0.5) and np.allclose(eta, -0.3)

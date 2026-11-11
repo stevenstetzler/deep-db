@@ -243,15 +243,6 @@ def _ingest_fakes_detections(session, source, path, orbit_ids, chunk_size=200_00
          .join(Detector, Detector.id == DetectorExposure.detector_id)
     }
 
-    # Backfill: earlier versions stored the file's signed RA verbatim.
-    backfilled = session.query(SyntheticObjectEphemeris).filter(
-        SyntheticObjectEphemeris.ra < 0
-    ).update({SyntheticObjectEphemeris.ra: SyntheticObjectEphemeris.ra + 360.0},
-             synchronize_session=False)
-    if backfilled:
-        session.commit()
-        logger.info("normalized RA of %d existing SyntheticObjectEphemeris rows to [0, 360)", backfilled)
-
     existing_pairs = {
         (synthetic_object_id, detector_exposure_id)
         for synthetic_object_id, detector_exposure_id in session.query(

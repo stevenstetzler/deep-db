@@ -30,7 +30,7 @@ ccdBounds = {'N1': (-1.0811, -0.782681, -0.157306, -0.00750506),
              'N27': (0.00550714, 0.304979, -0.815022, -0.665418), 
              'N28': (0.316126, 0.615276, -0.814707, -0.664908), 
              'N29': (-0.46018, -0.16101, -0.97887, -0.829315), 
-             'N30': (-0.150043, 0.149464, -0.829007, -0.978648), # APPROXIMATE
+             'N30': (-0.150043, 0.149464, -0.978648, -0.829007), # APPROXIMATE
              'N31': (0.160884, 0.460147, -0.978775, -0.829426),
              'S1': (-1.08096, -0.782554, 0.00715956, 0.15689), 
              'S2': (-0.7713, -0.47242, 0.0074194, 0.157269), 
@@ -74,3 +74,24 @@ ccd_name_to_num =  {
     'N19': 50, 'N20':  51, 'N21':  52, 'N22':  53, 'N23':  54, 'N24':  55, 'N25':  56, 'N26':  57, 'N27':  58, 'N28':  59, 'N29':  60, 'N30':  61, 'N31':  62
 }
 ccd_num_to_name = {v: k for k, v in ccd_name_to_num.items()}
+
+
+def assign_detector_number(ra, dec, ra0, dec0):
+    """
+    Vectorized chip lookup. For sky positions (ra, dec) (degrees, arrays) seen
+    with boresight (ra0, dec0), return the DECam detector number whose
+    ccdBounds contain the position in the tangent plane about the boresight
+    (first match), or 0 where no chip contains it.
+    """
+    import numpy as np
+    from deep_db.util.coord import sky_to_gnomonic
+
+    nums = np.array(sorted(ccd_name_to_num.values()))
+    bounds = np.array([ccdBounds[ccd_num_to_name[n]] for n in nums])  # (62, 4)
+    xi, eta = sky_to_gnomonic(ra, dec, ra0, dec0)
+    xi, eta = np.atleast_1d(xi)[:, None], np.atleast_1d(eta)[:, None]
+    inside = (
+        (bounds[:, 0] <= xi) & (xi <= bounds[:, 1])
+        & (bounds[:, 2] <= eta) & (eta <= bounds[:, 3])
+    )
+    return np.where(inside.any(axis=1), nums[inside.argmax(axis=1)], 0)

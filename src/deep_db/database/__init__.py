@@ -80,6 +80,10 @@ def download_db():
                     raise RuntimeError(
                         f"Downloaded database checksum {digest.hexdigest()} does not match expected {remote_sha}"
                     )
+                # mkstemp creates the file 0600; restore umask-based permissions for shared caches.
+                umask = os.umask(0)
+                os.umask(umask)
+                os.chmod(tmp_name, 0o666 & ~umask)
                 os.replace(tmp_name, db_path)
                 sha_path.write_text(remote_sha + "\n")
             finally:

@@ -6,11 +6,10 @@ from deep_db.visualize.common import _equalize_lims, _plot_detector_exposure_box
 
 def _unwrap_ra_func(ref_ra):
     """
-    SyntheticObjectEphemeris.ra comes straight from the DEEP fakes FITS
-    tables with no wrap-to-[0,360) normalization (unlike every other
-    ra/dec in this schema) -- for a field near RA=0 that means detections
-    at e.g. ra=-5.7 right next to a DetectorExposure box at ra=354.3 for
-    the *same* patch of sky. Build a function that re-wraps any ra into
+    Ephemeris ra is now wrapped to [0,360) on ingest, but a field
+    straddling RA=0 still spans e.g. ra=354.3 and ra=5.7 for the same
+    patch of sky (and databases ingested before the fix may still hold
+    negative values). Build a function that re-wraps any ra into
     degrees-from-ref (ref_ra = the first ephemeris point plotted), so
     everything plotted through it lands on the same number line.
     """
